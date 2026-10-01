@@ -6,7 +6,7 @@ This project uses the Rusty Game Engine (W rusty engine)
 
 # NOTICE
 
-This game is still very much in an alpha/beta development phase. I will add an HTML file so you guys can have it on the internet
+This game is still very much in an alpha/beta development phase. I will add an HTML file so you guys can have it on the internet.
 
 # How to Run
 
