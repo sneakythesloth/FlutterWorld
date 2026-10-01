@@ -13,12 +13,12 @@ const BACKGROUND: f32 = 0.0;
 const FLOOR: f32 = 1.0;
 const USER: f32 = 2.0;
 const PILLAR: f32 = 3.0;
-const PILLAR_TOP: f32 = 360.0;
-const PILLAR_BOTTOM: f32 = -295.0;
+const PILLAR_TOP: f32 = 554.0;
+const PILLAR_BOTTOM: f32 = -310.0;
 const PILLAR_RECYCLE_X: f32 = -680.0;
 const PILLAR_PAIRS: [(&str, &str); 3] = [
     ("pillar_1_bottom", "pillar_1_top"),
-    ("pillar_2_bottom", "pillar_2_top"),
+    ("pillar_2_bottom", "pillar_2_top",),
     ("pillar_3_bottom", "pillar_3_top"),
 ];
 
@@ -37,13 +37,15 @@ fn game_logic(engine: &mut Engine, game_state: &mut GameState) {
         }
     }
 }
+
 let direct = engine.add_text("directions", "Use Space key to fly\nUse G to glide\nUse F to fall faster\nPress the Enter key\n to restart the game");
-    direct.font = "font/BitcountPropSingle-VariableFont_CRSV,ELSH,ELXP,slnt,wght.ttf".to_string();
-    direct.translation.x -= 450.0;
-    direct.translation.y += 50.0;
+direct.font = "font/BitcountPropSingle-VariableFont_CRSV,ELSH,ELXP,slnt,wght.ttf".to_string();
+direct.translation.x -= 450.0;
+direct.translation.y += 150.0;
+
     if game_state.start == true {
-    direct.value = format!("");
-}
+        direct.value = format!("");
+    }
 
 let stand_y = -295.0;
 
@@ -94,11 +96,11 @@ if game_state.start {
     }
 }
 
+let player = engine.sprites.get_mut("user").unwrap();
+
 if engine.keyboard_state.just_pressed(KeyCode::Enter) {
     game_state.start = true;
 }
-
-let player = engine.sprites.get_mut("user").unwrap();
 
 if player.translation.y > stand_y &&game_state.start == true{
     player.translation.y -= 10.0; // The bird falls at 10 per frame
@@ -182,6 +184,7 @@ fn main() {
     ] {
         let bottom_height = bottom_image_height * 0.3;
         let top_height = top_image_height * 0.3;
+        let bottom_b = top_image_height * 0.1;
 
         let bottom = game.add_sprite(bottom_label, bottom_path);
         bottom.scale = 0.3;
