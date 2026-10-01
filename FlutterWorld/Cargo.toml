@@ -1,0 +1,11 @@
+[package]
+name = "main"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rusty_engine = "7.0.0"
+bevy = { version = "0.18", features = ["debug"] }
+
+[profile.dev]
+opt-level = 3
