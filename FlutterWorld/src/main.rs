@@ -27,7 +27,13 @@ const STALL_TILT: f32 = -1.0; // nose down while stalled
 const TILT_SMOOTHING: f32 = 0.15;
 const WIND_SPEED: f32 = 1.0;
 const PLAYER_START_X: f32 = -450.0;
-const PLAYER_MIN_X: f32 = -610.0;
+const WINDOW_WIDTH: u32 = 1440;
+const WINDOW_HEIGHT: u32 = 810;
+const PLAYER_MARGIN: f32 = 40.0; // keeps the bird's sprite fully inside the window
+const PLAYER_MIN_X: f32 = -(WINDOW_WIDTH as f32) / 2.0 + PLAYER_MARGIN;
+const PLAYER_MAX_X: f32 = WINDOW_WIDTH as f32 / 2.0 - PLAYER_MARGIN;
+const PLAYER_MIN_Y: f32 = -(WINDOW_HEIGHT as f32) / 2.0 + PLAYER_MARGIN;
+const PLAYER_MAX_Y: f32 = WINDOW_HEIGHT as f32 / 2.0 - PLAYER_MARGIN;
 
 const BACKGROUND: f32 = 0.0;
 const FLOOR: f32 = 1.0;
@@ -35,7 +41,7 @@ const USER: f32 = 2.0;
 const PILLAR: f32 = 3.0;
 const PILLAR_TOP: f32 = 554.0;
 const PILLAR_BOTTOM: f32 = -310.0;
-const PILLAR_RECYCLE_X: f32 = -680.0;
+const PILLAR_RECYCLE_X: f32 = -(WINDOW_WIDTH as f32) / 2.0 - 120.0; // just past the left edge
 const PILLAR_PAIRS: [(&str, &str); 3] = [
     ("pillar_1_bottom", "pillar_1_top"),
     ("pillar_2_bottom", "pillar_2_top",),
@@ -200,8 +206,12 @@ player.rotation += (target_tilt - player.rotation) * TILT_SMOOTHING;
 
 // A small headwind pushes the bird backwards, so it has to glide forward to hold its place.
 if game_state.start {
-    player.translation.x = (player.translation.x - WIND_SPEED).max(PLAYER_MIN_X);
+    player.translation.x -= WIND_SPEED;
 }
+
+// Keep the bird inside the window on every side.
+player.translation.x = player.translation.x.clamp(PLAYER_MIN_X, PLAYER_MAX_X);
+player.translation.y = player.translation.y.clamp(PLAYER_MIN_Y, PLAYER_MAX_Y);
 
 if engine.keyboard_state.pressed(KeyCode::KeyR) {
     game_state.start = false;
@@ -222,6 +232,7 @@ fn main() {
 
         game.window_settings(Window {
         title: "FlutterWorld".into(),
+        resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
         ..Default::default()
     }); //Makes the window named "FlutterWorld" instead of Rusty Engine
 
