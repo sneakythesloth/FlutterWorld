@@ -1,4 +1,13 @@
 use rusty_engine::{game, prelude::{bevy::input::keyboard::Key, *}};
+use std::f32::consts::{FRAC_PI_2, PI};
+
+/// Rotates `current` toward `target` by at most `max_step` radians, taking the shorter way
+/// round, and keeps the result in (-PI, PI].
+fn turn_toward(current: f32, target: f32, max_step: f32) -> f32 {
+    let diff = (target - current + PI).rem_euclid(2.0 * PI) - PI;
+    let turned = current + diff.clamp(-max_step, max_step);
+    (turned + PI).rem_euclid(2.0 * PI) - PI
+}
 
 
 #[derive(Resource)]
@@ -10,6 +19,7 @@ struct GameState {
     lift: f32,
     glide_speed: f32,
     stalled: bool,
+    heading: f32, // flight direction in radians: 0 is forward, positive is up
 }
 
 const LIFT_ON_RELEASE: f32 = 18.0;
@@ -21,7 +31,11 @@ const GLIDE_DIVE_ACCEL: f32 = 0.6;
 const GLIDE_CLIMB_DRAG: f32 = 0.8;
 const GLIDE_COAST_DRAG: f32 = 0.5;
 const GLIDE_STALL_SPEED: f32 = 3.0;
-const GLIDE_RECOVER_SPEED: f32 = 5.0;
+const GLIDE_RECOVER_SPEED: f32 = 8.0; // a stalled bird must fall until it reaches this to steer again
+const STALL_DIVE_ACCEL: f32 = 0.2; // speed regained per frame while falling out of a stall
+const STALL_NOSE_DROP: f32 = 0.06; // radians per frame the nose drops toward straight down
+const TURN_RATE_PER_SPEED: f32 = 0.008; // radians per frame of turning, per unit of speed
+const GLIDE_ARRIVE_DIST: f32 = 15.0; // stop re-aiming when the mouse is this close
 const MAX_TILT: f32 = 0.8; // radians, about 45 degrees
 const STALL_TILT: f32 = -1.0; // nose down while stalled
 const TILT_SMOOTHING: f32 = 0.15;
@@ -58,6 +72,7 @@ fn game_logic(engine: &mut Engine, game_state: &mut GameState) {
             game_state.lift = 0.0;
             game_state.glide_speed = GLIDE_BASE_SPEED;
             game_state.stalled = false;
+            game_state.heading = 0.0;
             player.translation = Vec2::new(PLAYER_START_X, 0.0);
             player.rotation = 0.0;
         }
@@ -161,7 +176,8 @@ if game_state.start && game_state.lift > 0.0 {
 // A stalled bird has lost too much speed climbing: it can't glide, so it falls (gravity
 // above) and the fall rebuilds speed until it can steer again.
 if game_state.start && game_state.stalled {
-    game_state.glide_speed += GLIDE_DIVE_ACCEL;
+    game_state.glide_speed += STALL_DIVE_ACCEL;
+    game_state.heading = turn_toward(game_state.heading, -FRAC_PI_2, STALL_NOSE_DROP);
     if game_state.glide_speed >= GLIDE_RECOVER_SPEED {
         game_state.stalled = false;
     }
@@ -172,34 +188,35 @@ if game_state.start && game_state.stalled {
 let mut target_tilt = if game_state.stalled { STALL_TILT } else { 0.0 };
 if game_state.start && !game_state.stalled {
     if glide {
+        // The bird turns toward the mouse at a rate set by its speed, so a slow bird barely
+        // turns at all. Speed gain and loss follow where the bird is actually pointing.
         if let Some(mouse) = engine.mouse_state.location() {
             let to_mouse = mouse - player.translation;
-            let dist = to_mouse.length();
-            if dist > 0.0 {
-                let dir = to_mouse / dist;
-                if dir.y < 0.0 {
-                    game_state.glide_speed += GLIDE_DIVE_ACCEL * -dir.y;
-                } else {
-                    game_state.glide_speed -= GLIDE_CLIMB_DRAG * dir.y;
-                }
-                game_state.glide_speed = game_state.glide_speed.clamp(GLIDE_MIN_SPEED, GLIDE_MAX_SPEED);
-                if dir.y > 0.0 && game_state.glide_speed <= GLIDE_STALL_SPEED {
-                    game_state.stalled = true;
-                    target_tilt = STALL_TILT;
-                } else {
-                    // Use |dx| so the nose never flips backwards: gliding back toward the
-                    // mouse is only tilted by how far up or down it is.
-                    target_tilt = dir.y.atan2(dir.x.abs()).clamp(-MAX_TILT, MAX_TILT);
-                    if dist <= game_state.glide_speed {
-                        player.translation = mouse;
-                    } else {
-                        player.translation += dir * game_state.glide_speed;
-                    }
-                }
+            if to_mouse.length() > GLIDE_ARRIVE_DIST {
+                let desired = to_mouse.y.atan2(to_mouse.x);
+                let turn_rate = TURN_RATE_PER_SPEED * game_state.glide_speed;
+                game_state.heading = turn_toward(game_state.heading, desired, turn_rate);
             }
+        }
+        let (sin, cos) = game_state.heading.sin_cos();
+        if sin < 0.0 {
+            game_state.glide_speed += GLIDE_DIVE_ACCEL * -sin;
+        } else {
+            game_state.glide_speed -= GLIDE_CLIMB_DRAG * sin;
+        }
+        game_state.glide_speed = game_state.glide_speed.clamp(GLIDE_MIN_SPEED, GLIDE_MAX_SPEED);
+        if sin > 0.0 && game_state.glide_speed <= GLIDE_STALL_SPEED {
+            game_state.stalled = true;
+            target_tilt = STALL_TILT;
+        } else {
+            // Use |cos| so the nose never flips backwards: flying back is only tilted by
+            // how far up or down the bird is heading.
+            target_tilt = sin.atan2(cos.abs()).clamp(-MAX_TILT, MAX_TILT);
+            player.translation += Vec2::new(cos, sin) * game_state.glide_speed;
         }
     } else {
         game_state.glide_speed = (game_state.glide_speed - GLIDE_COAST_DRAG).max(GLIDE_BASE_SPEED);
+        game_state.heading = turn_toward(game_state.heading, 0.0, TURN_RATE_PER_SPEED * GLIDE_BASE_SPEED);
     }
 }
 player.rotation += (target_tilt - player.rotation) * TILT_SMOOTHING;
@@ -218,6 +235,7 @@ if engine.keyboard_state.pressed(KeyCode::KeyR) {
     game_state.lift = 0.0;
     game_state.glide_speed = GLIDE_BASE_SPEED;
     game_state.stalled = false;
+    game_state.heading = 0.0;
     player.translation = Vec2::new(PLAYER_START_X, 0.0);
     player.rotation = 0.0;
 }
@@ -297,8 +315,9 @@ fn main() {
         lift: 0.0,
         glide_speed: GLIDE_BASE_SPEED,
         stalled: false,
+        heading: 0.0,
         };
     game.add_logic(game_logic);
     game.run(game_state); //runs the game in the specified game state
-    game.run(GameState {_current_score: 0, _high_score: 0, _health_left: 1, start: false, lift: 0.0, glide_speed: GLIDE_BASE_SPEED, stalled: false }); //establishes the game state when a player first loads the game
+    game.run(GameState {_current_score: 0, _high_score: 0, _health_left: 1, start: false, lift: 0.0, glide_speed: GLIDE_BASE_SPEED, stalled: false, heading: 0.0 }); //establishes the game state when a player first loads the game
 }
