@@ -18,8 +18,11 @@ enum Mode {
 
 #[derive(Resource)]
 struct GameState {
-    _current_score: u128,
-    _high_score: u128,
+    score: f32,                  // points earned this run; shown rounded down
+    pipes: u32,                  // pipes the bird has flown through this run
+    passed: [bool; NUM_PILLARS], // which pillars the bird is already past, so each counts once
+    last_run: Option<(u32, u32)>, // (points, pipes) of the run that just ended
+    high_score: u32,
     _health_left: u128,
     mode: Mode,
     levels: [usize; SETTING_COUNT], // chosen level of each setting, indexes into the tables below
@@ -34,8 +37,11 @@ struct GameState {
 impl GameState {
     fn new() -> Self {
         GameState {
-            _current_score: 0,
-            _high_score: 0,
+            score: 0.0,
+            pipes: 0,
+            passed: [false; NUM_PILLARS],
+            last_run: None,
+            high_score: 0,
             _health_left: 1,
             mode: Mode::Menu,
             levels: [DEFAULT_LEVEL; SETTING_COUNT],
@@ -66,8 +72,65 @@ impl GameState {
     }
 
     fn speed_scale(&self) -> f32 {
-        SPEED_SCALE[self.levels[SPEED]]
+        SPEED_SCALE[self.levels[DIFFICULTY]]
     }
+
+    fn difficulty_multiplier(&self) -> f32 {
+        DIFFICULTY_MULTIPLIER[self.levels[DIFFICULTY]]
+    }
+
+    /// Whole points earned so far this run.
+    fn points(&self) -> u32 {
+        self.score as u32
+    }
+
+    /// How much the time-based point rate is multiplied by right now: it grows towards the front
+    /// of the window, with flight speed, with the difficulty, and with every pipe passed.
+    fn score_multiplier(&self, bird_x: f32) -> f32 {
+        front_factor(bird_x)
+            * speed_factor(self.glide_speed)
+            * self.difficulty_multiplier()
+            * (1.0 + self.pipes as f32 * PIPE_STREAK_BONUS)
+    }
+
+    /// Resets the points and the pipe count for a fresh run.
+    fn reset_score(&mut self) {
+        self.score = 0.0;
+        self.pipes = 0;
+        self.passed = [false; NUM_PILLARS];
+    }
+
+    /// Remembers how the run went (for the menu) and updates the high score.
+    fn end_run(&mut self) {
+        let points = self.points();
+        self.high_score = self.high_score.max(points);
+        self.last_run = Some((points, self.pipes));
+    }
+}
+
+/// Point multiplier for how far forward the bird is: x1 at the back of its range, up to
+/// x(1 + FRONT_BONUS) at the front.
+fn front_factor(bird_x: f32) -> f32 {
+    let t = ((bird_x - PLAYER_MIN_X) / (PLAYER_MAX_X - PLAYER_MIN_X)).clamp(0.0, 1.0);
+    1.0 + FRONT_BONUS * t
+}
+
+/// Point multiplier for flight speed: x1 at cruising speed, more while gliding fast.
+fn speed_factor(glide_speed: f32) -> f32 {
+    (glide_speed / GLIDE_BASE_SPEED).max(1.0)
+}
+
+/// Marks every pillar the bird has now flown completely past and returns how many are new.
+/// `passed` is cleared by `scroll_world` when a pillar is recycled to the right.
+fn count_passed(pillar_xs: &[f32; NUM_PILLARS], passed: &mut [bool; NUM_PILLARS], bird_x: f32) -> u32 {
+    let mut newly_passed = 0;
+    for i in 0..NUM_PILLARS {
+        if !passed[i] && pillar_xs[i] + PILLAR_HALF_W + BIRD_HALF_W < bird_x {
+            passed[i] = true;
+            newly_passed += 1;
+        }
+    }
+    newly_passed
 }
 
 // Menu settings. Each one has LEVELS steps; the middle step is the original game's value.
@@ -76,16 +139,24 @@ const DEFAULT_LEVEL: usize = 2;
 const SETTING_COUNT: usize = 3;
 const FREQUENCY: usize = 0;
 const GAP: usize = 1;
-const SPEED: usize = 2;
-const SETTING_NAMES: [&str; SETTING_COUNT] = ["Pillar frequency", "Gap size", "Bird speed"];
+const DIFFICULTY: usize = 2;
+const SETTING_NAMES: [&str; SETTING_COUNT] = ["Pillar frequency", "Gap size", "Difficulty"];
 const LEVEL_NAMES: [[&str; LEVELS]; SETTING_COUNT] = [
     ["Very rare", "Rare", "Normal", "Frequent", "Very frequent"],
     ["Tiny", "Small", "Normal", "Large", "Huge"],
-    ["Very slow", "Slow", "Normal", "Fast", "Very fast"],
+    ["Very easy", "Easy", "Normal", "Hard", "Very hard"],
 ];
 const PILLAR_SPACING: [f32; LEVELS] = [900.0, 750.0, 650.0, 550.0, 450.0]; // x distance between pillars
 const GAP_SCALE: [f32; LEVELS] = [0.6, 0.8, 1.0, 1.2, 1.4];
-const SPEED_SCALE: [f32; LEVELS] = [0.6, 0.8, 1.0, 1.25, 1.5]; // how fast the world scrolls past the bird
+const SPEED_SCALE: [f32; LEVELS] = [0.6, 0.8, 1.0, 1.25, 1.5]; // difficulty: how fast the pillars go by
+
+// Points. The score ticks up every frame at BASE_POINTS_PER_FRAME times a multiplier, and each
+// pipe passed adds a lump sum on top.
+const BASE_POINTS_PER_FRAME: f32 = 0.2;
+const FRONT_BONUS: f32 = 2.0; // extra multiplier at the very front of the window (x3 in total)
+const PIPE_STREAK_BONUS: f32 = 0.1; // each pipe passed adds this much to the multiplier
+const PIPE_POINTS: f32 = 50.0; // lump sum for passing a pipe, before the difficulty multiplier
+const DIFFICULTY_MULTIPLIER: [f32; LEVELS] = [0.5, 0.75, 1.0, 1.5, 2.0]; // points scale with difficulty
 const BASE_GAP: f32 = 420.0;
 const BASE_SCROLL_SPEED: f32 = 6.0; // floor and pillars, pixels per frame
 const BASE_BACKGROUND_SPEED: f32 = 3.0;
@@ -167,6 +238,9 @@ const UI_TEXTS: [(&str, f32, f32); 7] = [
     ("ui_hint", -155.0, 24.0),
     ("ui_controls", -220.0, 24.0),
 ];
+
+// (label, y, font size) of the score lines along the top of the window
+const HUD_TEXTS: [(&str, f32, f32); 2] = [("hud_score", 365.0, 40.0), ("hud_pipes", 322.0, 26.0)];
 
 /// What the bird is being told to do this frame, from the keyboard and mouse or from the AI.
 struct Controls {
@@ -356,13 +430,14 @@ fn reset_run(engine: &mut Engine, gs: &mut GameState) {
         place_pillar_pair(engine, i, FIRST_PILLAR_X + i as f32 * spacing, gap);
     }
     gs.reset_bird();
+    gs.reset_score();
     let player = engine.sprites.get_mut("user").unwrap();
     player.translation = Vec2::new(PLAYER_START_X, 0.0);
     player.rotation = 0.0;
 }
 
-/// Scrolls the floor, background and pillars. The speed setting scales all of them.
-fn scroll_world(engine: &mut Engine, gs: &GameState) {
+/// Scrolls the floor, background and pillars. The difficulty setting scales all of them.
+fn scroll_world(engine: &mut Engine, gs: &mut GameState) {
     let scale = gs.speed_scale();
     for label in ["floor", "floor2"] {
         engine.sprites.get_mut(label).unwrap().translation.x -= BASE_SCROLL_SPEED * scale;
@@ -398,14 +473,30 @@ fn scroll_world(engine: &mut Engine, gs: &GameState) {
     let recycled = scroll_pillars(&mut xs, BASE_SCROLL_SPEED * scale, gs.pillar_spacing());
     for i in 0..NUM_PILLARS {
         if recycled[i] {
-            // A recycled pair is brand new, so it picks up the current gap size.
+            // A recycled pair is brand new, so it picks up the current gap size and can be
+            // passed (and counted) again.
             place_pillar_pair(engine, i, xs[i], gs.gap_size());
+            gs.passed[i] = false;
         } else {
             for top in [false, true] {
                 engine.sprites.get_mut(pillar_label(i, top).as_str()).unwrap().translation.x = xs[i];
             }
         }
     }
+}
+
+/// Adds this frame's points: the time-based trickle, plus a lump sum for each pipe just cleared.
+fn award_points(engine: &Engine, gs: &mut GameState) {
+    let bird_x = engine.sprites["user"].translation.x;
+    gs.score += BASE_POINTS_PER_FRAME * gs.score_multiplier(bird_x);
+
+    let mut xs = [0.0; NUM_PILLARS];
+    for (i, x) in xs.iter_mut().enumerate() {
+        *x = engine.sprites[pillar_label(i, false).as_str()].translation.x;
+    }
+    let cleared = count_passed(&xs, &mut gs.passed, bird_x);
+    gs.pipes += cleared;
+    gs.score += cleared as f32 * PIPE_POINTS * gs.difficulty_multiplier();
 }
 
 /// Up/down picks a setting, left/right changes it.
@@ -466,6 +557,24 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
     set_text(engine, "ui_title", title.to_string());
     set_text(engine, "ui_subtitle", subtitle.to_string());
     set_text(engine, "ui_controls", controls.to_string());
+
+    let (score_line, pipes_line) = match (gs.mode, gs.last_run) {
+        (Mode::Menu, Some((points, pipes))) => (
+            format!("Last score: {}     Best: {}", points, gs.high_score),
+            format!("Pipes: {}", pipes),
+        ),
+        (Mode::Menu, None) => (String::new(), String::new()),
+        _ => {
+            let bird_x = engine.sprites["user"].translation.x;
+            (
+                format!("Score: {}", gs.points()),
+                format!("Pipes: {}     Multiplier: x{:.1}", gs.pipes, gs.score_multiplier(bird_x)),
+            )
+        }
+    };
+    set_text(engine, "hud_score", score_line);
+    set_text(engine, "hud_pipes", pipes_line);
+
     set_text(
         engine,
         "ui_hint",
@@ -474,12 +583,16 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
     for row in 0..SETTING_COUNT {
         let label = format!("ui_row_{}", row);
         let selected = gs.selected == row;
+        let mut level = LEVEL_NAMES[row][gs.levels[row]].to_string();
+        if row == DIFFICULTY {
+            level = format!("{} (points x{})", level, DIFFICULTY_MULTIPLIER[gs.levels[row]]);
+        }
         let value = if !showing {
             String::new()
         } else if selected {
-            format!(">  {}:  < {} >  <", SETTING_NAMES[row], LEVEL_NAMES[row][gs.levels[row]])
+            format!(">  {}:  < {} >  <", SETTING_NAMES[row], level)
         } else {
-            format!("{}:  {}", SETTING_NAMES[row], LEVEL_NAMES[row][gs.levels[row]])
+            format!("{}:  {}", SETTING_NAMES[row], level)
         };
         if let Some(text) = engine.texts.get_mut(label.as_str()) {
             text.value = value;
@@ -531,6 +644,7 @@ fn game_logic(engine: &mut Engine, gs: &mut GameState) {
             if pause {
                 gs.mode = Mode::Paused;
             } else if reset {
+                gs.end_run();
                 reset_run(engine, gs);
                 gs.mode = Mode::Menu;
             } else {
@@ -540,8 +654,11 @@ fn game_logic(engine: &mut Engine, gs: &mut GameState) {
                 step_bird(&mut player.translation, &mut player.rotation, gs, &controls);
                 if bird_hit {
                     println!("Oh no! Flutter died! Try again next time!");
+                    gs.end_run();
                     reset_run(engine, gs);
                     gs.mode = Mode::Menu;
+                } else {
+                    award_points(engine, gs);
                 }
             }
         }
@@ -550,6 +667,7 @@ fn game_logic(engine: &mut Engine, gs: &mut GameState) {
             if pause || enter {
                 gs.mode = Mode::Playing;
             } else if reset {
+                gs.end_run();
                 reset_run(engine, gs);
                 gs.mode = Mode::Menu;
             }
@@ -565,6 +683,12 @@ fn add_ui(engine: &mut Engine) {
     panel.layer = PANEL;
     panel.translation = OFFSCREEN;
     for (label, y, font_size) in UI_TEXTS {
+        let text = engine.add_text(label, "");
+        text.font = MENU_FONT.to_string();
+        text.font_size = font_size;
+        text.translation = Vec2::new(0.0, y);
+    }
+    for (label, y, font_size) in HUD_TEXTS {
         let text = engine.add_text(label, "");
         text.font = MENU_FONT.to_string();
         text.font_size = font_size;
@@ -679,10 +803,10 @@ mod tests {
                     assert_eq!(
                         simulate([f, g, s], 20_000),
                         None,
-                        "AI crashed with frequency {}, gap {}, speed {}",
+                        "AI crashed with frequency {}, gap {}, difficulty {}",
                         LEVEL_NAMES[FREQUENCY][f],
                         LEVEL_NAMES[GAP][g],
-                        LEVEL_NAMES[SPEED][s]
+                        LEVEL_NAMES[DIFFICULTY][s]
                     );
                 }
             }
@@ -726,6 +850,75 @@ mod tests {
         assert_eq!(gs.pillar_spacing(), 650.0);
         assert_eq!(gs.speed_scale(), 1.0);
         assert_eq!(gs.gap_size(), BASE_GAP);
+    }
+
+    #[test]
+    fn points_multiplier_grows_with_front_speed_difficulty_and_pipes() {
+        let mut gs = GameState::new();
+        let base = gs.score_multiplier(PLAYER_MIN_X);
+        assert!((base - 1.0).abs() < 1e-6, "back of the window at normal settings is x1, got {base}");
+
+        assert!(gs.score_multiplier(PLAYER_MAX_X) > gs.score_multiplier(0.0));
+        assert!((gs.score_multiplier(PLAYER_MAX_X) - (1.0 + FRONT_BONUS)).abs() < 1e-6);
+
+        gs.glide_speed = GLIDE_MAX_SPEED;
+        assert!(gs.score_multiplier(PLAYER_MIN_X) > base, "gliding fast should score more");
+        gs.glide_speed = GLIDE_MIN_SPEED;
+        assert_eq!(gs.score_multiplier(PLAYER_MIN_X), base, "slow flight shouldn't cost points");
+        gs.glide_speed = GLIDE_BASE_SPEED;
+
+        gs.levels[DIFFICULTY] = LEVELS - 1;
+        assert!(gs.score_multiplier(PLAYER_MIN_X) > base, "harder difficulty should score more");
+        gs.levels[DIFFICULTY] = DEFAULT_LEVEL;
+
+        gs.pipes = 10;
+        assert!(gs.score_multiplier(PLAYER_MIN_X) > base, "more pipes should score more");
+    }
+
+    #[test]
+    fn harder_difficulty_means_faster_pipes_and_more_points() {
+        for level in 1..LEVELS {
+            assert!(SPEED_SCALE[level] > SPEED_SCALE[level - 1]);
+            assert!(DIFFICULTY_MULTIPLIER[level] > DIFFICULTY_MULTIPLIER[level - 1]);
+        }
+    }
+
+    #[test]
+    fn each_pipe_is_counted_once_and_only_when_fully_behind_the_bird() {
+        let bird_x = 0.0;
+        let mut xs = [1000.0; NUM_PILLARS];
+        let mut passed = [false; NUM_PILLARS];
+        assert_eq!(count_passed(&xs, &mut passed, bird_x), 0);
+
+        // Still overlapping the bird: not passed yet.
+        xs[0] = -(PILLAR_HALF_W + BIRD_HALF_W) + 1.0;
+        assert_eq!(count_passed(&xs, &mut passed, bird_x), 0);
+
+        // Fully behind it: counts once, never again.
+        xs[0] = -(PILLAR_HALF_W + BIRD_HALF_W) - 1.0;
+        xs[1] = -500.0;
+        assert_eq!(count_passed(&xs, &mut passed, bird_x), 2);
+        assert_eq!(count_passed(&xs, &mut passed, bird_x), 0);
+
+        // The bird drifting back in front of a pillar it already cleared doesn't count it again.
+        assert_eq!(count_passed(&xs, &mut passed, -600.0), 0);
+        assert_eq!(count_passed(&xs, &mut passed, bird_x), 0);
+    }
+
+    #[test]
+    fn ending_a_run_records_it_and_keeps_the_best() {
+        let mut gs = GameState::new();
+        gs.score = 120.9;
+        gs.pipes = 3;
+        gs.end_run();
+        assert_eq!(gs.last_run, Some((120, 3)));
+        assert_eq!(gs.high_score, 120);
+
+        gs.reset_score();
+        gs.score = 40.0;
+        gs.end_run();
+        assert_eq!(gs.last_run, Some((40, 0)));
+        assert_eq!(gs.high_score, 120);
     }
 
     #[test]
