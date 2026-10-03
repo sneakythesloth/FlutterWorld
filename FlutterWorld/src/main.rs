@@ -688,8 +688,19 @@ fn player_controls(engine: &Engine) -> Controls {
     Controls {
         flap: kb.pressed(KeyCode::Space) || mouse.pressed(MouseButton::Left),
         glide: kb.pressed(KeyCode::KeyG) || mouse.pressed(MouseButton::Right),
-        glide_target: mouse.location(),
+        glide_target: world_mouse(engine),
     }
+}
+
+/// Where the mouse is in the game world. The engine reports it in window pixels, but the camera
+/// shows a fixed WINDOW_WIDTH x WINDOW_HEIGHT area scaled to fit the window.
+fn world_mouse(engine: &Engine) -> Option<Vec2> {
+    let window = engine.window_dimensions;
+    let scale = (window.x / WINDOW_WIDTH as f32).min(window.y / WINDOW_HEIGHT as f32);
+    if scale <= 0.0 {
+        return None;
+    }
+    engine.mouse_state.location().map(|m| m / scale)
 }
 
 /// Plays a sound effect, scaled by the Sound effects setting.
@@ -739,7 +750,7 @@ struct MenuInput {
 fn read_menu_input(engine: &Engine, gs: &mut GameState) -> MenuInput {
     let kb = &engine.keyboard_state;
     let mouse = &engine.mouse_state;
-    let hovered = mouse.location().and_then(|m| gs.page.item_at(m));
+    let hovered = world_mouse(engine).and_then(|m| gs.page.item_at(m));
     let left_click = hovered.is_some() && mouse.just_pressed(MouseButton::Left);
     let right_click = hovered.is_some() && mouse.just_pressed(MouseButton::Right);
     if let Some(i) = hovered {
@@ -1117,6 +1128,8 @@ fn main() {
         resolution: WindowResolution::new(WINDOW_WIDTH, WINDOW_HEIGHT),
         ..Default::default()
     }); //Makes the window named "FlutterWorld" instead of Rusty Engine
+    // Always show the same area of the world, however big the window or monitor is.
+    game.view_size(WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32);
 
     let player = game.add_sprite("user", "sprite/flutter/avatar.png");
     player.translation = Vec2::new(PLAYER_START_X, 0.0);
