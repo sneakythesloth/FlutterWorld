@@ -15,4 +15,9 @@ This game is still very much in an alpha/beta development phase. **THERE WILL BE
 2) Make sure you have Rust installed. **THIS IS CRUCIAL**
 3) Into your terminal, type "cargo run --release" (without quotes). It'll take a few minutes to compile but then it should be fine
 
+# Credits
+
+- Music: "Classy 8-Bit" by Eric Matyas, www.soundimage.org
+- Sound effects: Kenney (www.kenney.nl), CC0
+
 # Enjoy!
