@@ -1315,7 +1315,6 @@ fn game_logic(engine: &mut Engine, gs: &mut GameState) {
             } else if reset {
                 choose(engine, gs, Item::MainMenu);
             } else if bird_hit {
-                println!("Oh no! Flutter died! Try again next time!");
                 play_sound(engine, gs, DEATH_SOUND, DEATH_SOUND_VOLUME);
                 engine.audio_manager.stop_music();
                 finish_run(gs);
