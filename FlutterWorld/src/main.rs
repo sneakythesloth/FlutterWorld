@@ -1,5 +1,5 @@
-use rusty_engine::prelude::*;
 use rusty_engine::prelude::bevy::prelude::Color;
+use rusty_engine::prelude::*;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::path::PathBuf;
 
@@ -13,10 +13,10 @@ fn turn_toward(current: f32, target: f32, max_step: f32) -> f32 {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
-    Menu,    // start screen, with an AI flying in the background
+    Menu, // start screen, with an AI flying in the background
     Playing,
     Paused,
-    Dying,   // the bird has crashed and tumbles out of the window before the menu comes back
+    Dying, // the bird has crashed and tumbles out of the window before the menu comes back
 }
 
 /// The screens of the menu. The start menu and the pause menu are each a home page, and both can
@@ -47,7 +47,13 @@ impl Page {
     fn items(self) -> &'static [Item] {
         match self {
             Page::Main => &[Item::Play, Item::Options, Item::HowToPlay, Item::Quit],
-            Page::Pause => &[Item::Resume, Item::Restart, Item::Options, Item::HowToPlay, Item::MainMenu],
+            Page::Pause => &[
+                Item::Resume,
+                Item::Restart,
+                Item::Options,
+                Item::HowToPlay,
+                Item::MainMenu,
+            ],
             Page::Options => &[
                 Item::Setting(FREQUENCY),
                 Item::Setting(GAP),
@@ -92,8 +98,9 @@ struct StepClock {
 impl StepClock {
     fn steps(&mut self, frame_secs: f32) -> u32 {
         let mut frame = frame_secs as f64 * STEPS_PER_SECOND;
-        if let Some(snap) =
-            [0.25, 1.0 / 3.0, 0.5, 1.0, 2.0, 3.0, 4.0].into_iter().find(|&s| (frame - s).abs() < s * STEP_SNAP)
+        if let Some(snap) = [0.25, 1.0 / 3.0, 0.5, 1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .find(|&s| (frame - s).abs() < s * STEP_SNAP)
         {
             frame = snap;
         }
@@ -106,14 +113,14 @@ impl StepClock {
 
 #[derive(Resource)]
 struct GameState {
-    score: f32,                  // points earned this run; shown rounded down
-    pipes: u32,                  // pipes the bird has flown through this run
-    passed: [bool; NUM_PILLARS], // which pillars the bird is already past, so each counts once
+    score: f32,                   // points earned this run; shown rounded down
+    pipes: u32,                   // pipes the bird has flown through this run
+    passed: [bool; NUM_PILLARS],  // which pillars the bird is already past, so each counts once
     last_run: Option<(u32, u32)>, // (points, pipes) of the run that just ended
     high_score: u32,
     mode: Mode,
-    page: Page,                     // which menu page is showing, while in the menu or paused
-    selected: usize,                // which item on the page the menu cursor is on
+    page: Page,      // which menu page is showing, while in the menu or paused
+    selected: usize, // which item on the page the menu cursor is on
     levels: [usize; SETTING_COUNT], // chosen level of each setting, indexes into the tables below
     clock: StepClock,
     lift: f32,
@@ -223,7 +230,11 @@ impl GameState {
 
     /// The page that Back returns to: the pause menu mid-run, the start menu otherwise.
     fn home_page(&self) -> Page {
-        if self.mode == Mode::Paused { Page::Pause } else { Page::Main }
+        if self.mode == Mode::Paused {
+            Page::Pause
+        } else {
+            Page::Main
+        }
     }
 
     fn music_volume(&self) -> f32 {
@@ -249,7 +260,11 @@ fn speed_factor(glide_speed: f32) -> f32 {
 
 /// Marks every pillar the bird has now flown completely past and returns how many are new.
 /// `passed` is cleared by `scroll_world` when a pillar is recycled to the right.
-fn count_passed(pillar_xs: &[f32; NUM_PILLARS], passed: &mut [bool; NUM_PILLARS], bird_x: f32) -> u32 {
+fn count_passed(
+    pillar_xs: &[f32; NUM_PILLARS],
+    passed: &mut [bool; NUM_PILLARS],
+    bird_x: f32,
+) -> u32 {
     let mut newly_passed = 0;
     for i in 0..NUM_PILLARS {
         if !passed[i] && pillar_xs[i] + PILLAR_HALF_W + BIRD_HALF_W < bird_x {
@@ -269,7 +284,13 @@ const GAP: usize = 1;
 const DIFFICULTY: usize = 2;
 const MUSIC_SETTING: usize = 3;
 const SOUND_SETTING: usize = 4;
-const SETTING_NAMES: [&str; SETTING_COUNT] = ["Pillar frequency", "Gap size", "Difficulty", "Music", "Sound effects"];
+const SETTING_NAMES: [&str; SETTING_COUNT] = [
+    "Pillar frequency",
+    "Gap size",
+    "Difficulty",
+    "Music",
+    "Sound effects",
+];
 const VOLUME_NAMES: [&str; LEVELS] = ["Off", "Quiet", "Normal", "Loud", "Max"];
 const LEVEL_NAMES: [[&str; LEVELS]; SETTING_COUNT] = [
     ["Very rare", "Rare", "Normal", "Frequent", "Very frequent"],
@@ -446,7 +467,14 @@ const SPEED_FILL: &str = "speed_fill";
 const SPEED_STALL_ZONE: &str = "speed_stall_zone";
 const SPEED_RECOVER: &str = "speed_recover";
 const SPEED_NEEDLE: &str = "speed_needle";
-const SPEED_PIECES: [&str; 6] = [SPEED_BACK, SPEED_TRACK, SPEED_FILL, SPEED_STALL_ZONE, SPEED_RECOVER, SPEED_NEEDLE]; // back to front
+const SPEED_PIECES: [&str; 6] = [
+    SPEED_BACK,
+    SPEED_TRACK,
+    SPEED_FILL,
+    SPEED_STALL_ZONE,
+    SPEED_RECOVER,
+    SPEED_NEEDLE,
+]; // back to front
 // The fill changes width, so it is built from segments 1, 2, 4, ... 256 pixels wide (enough for
 // SPEED_BAR_W), one set per colour, and shows the segments that add up to its width.
 const SPEED_FILL_COLORS: [Color; 3] = [SPEED_OK_COLOR, SPEED_SLOW_COLOR, SPEED_STALL_COLOR];
@@ -483,7 +511,11 @@ fn gap_center(index: usize, gap: f32) -> f32 {
 
 fn pair_for(index: usize, x: f32, gap: f32) -> Pair {
     let center = gap_center(index, gap);
-    Pair { x, e_b: center - gap / 2.0, e_t: center + gap / 2.0 }
+    Pair {
+        x,
+        e_b: center - gap / 2.0,
+        e_t: center + gap / 2.0,
+    }
 }
 
 /// Moves every pillar left. A pillar that scrolls off the left edge is sent back to the right,
@@ -589,7 +621,11 @@ fn step_bird(pos: &mut Vec2, rotation: &mut f32, gs: &mut GameState, c: &Control
 /// Advances the death animation by one frame. Returns true once it has finished.
 fn step_death(pos: &mut Vec2, rotation: &mut f32, gs: &mut GameState) -> bool {
     if gs.death_frame < DEATH_FREEZE_FRAMES {
-        pos.x += if gs.death_frame % 2 == 0 { DEATH_SHAKE } else { -DEATH_SHAKE };
+        pos.x += if gs.death_frame % 2 == 0 {
+            DEATH_SHAKE
+        } else {
+            -DEATH_SHAKE
+        };
     } else if pos.y > DEATH_OFFSCREEN_Y {
         pos.y += gs.death_fall_speed;
         gs.death_fall_speed -= DEATH_GRAVITY;
@@ -608,7 +644,8 @@ fn ai_target(bird_x: f32, pairs: &[Pair]) -> f32 {
             next = Some(pair);
         }
     }
-    next.map_or(0.0, |p| (p.e_b + p.e_t) / 2.0).clamp(AI_MIN_Y, AI_MAX_Y)
+    next.map_or(0.0, |p| (p.e_b + p.e_t) / 2.0)
+        .clamp(AI_MIN_Y, AI_MAX_Y)
 }
 
 /// The AI only flaps: it holds the flap while below the gap's centre and lets go once above it,
@@ -620,7 +657,11 @@ fn ai_controls(bird: Vec2, was_flapping: bool, pairs: &[Pair]) -> Controls {
     } else {
         bird.y < target - AI_FLAP_BELOW
     };
-    Controls { flap, glide: false, glide_target: None }
+    Controls {
+        flap,
+        glide: false,
+        glide_target: None,
+    }
 }
 
 // Sprite labels of each pillar pair, as [bottom, top]. Kept as constants so looking a pillar up
@@ -693,7 +734,12 @@ fn scroll_world(engine: &mut Engine, gs: &mut GameState) {
             gs.passed[i] = false;
         } else {
             for top in [false, true] {
-                engine.sprites.get_mut(pillar_label(i, top)).unwrap().translation.x = xs[i];
+                engine
+                    .sprites
+                    .get_mut(pillar_label(i, top))
+                    .unwrap()
+                    .translation
+                    .x = xs[i];
             }
         }
     }
@@ -740,7 +786,10 @@ fn player_controls(engine: &Engine) -> Controls {
 /// Where the mouse is in the game world. The engine reports it in window pixels, but the world is
 /// drawn scaled to fit the window.
 fn world_mouse(engine: &Engine) -> Option<Vec2> {
-    engine.mouse_state.location().map(|m| m / view_scale(engine))
+    engine
+        .mouse_state
+        .location()
+        .map(|m| m / view_scale(engine))
 }
 
 /// How much to scale the world so the whole WINDOW_WIDTH x WINDOW_HEIGHT area fits the window.
@@ -919,7 +968,14 @@ fn set_text(engine: &mut Engine, label: &str, value: impl Into<String>) {
 }
 
 /// Puts a line of menu text in place.
-fn put_text(engine: &mut Engine, label: &str, value: impl Into<String>, y: f32, font_size: f32, scale: f32) {
+fn put_text(
+    engine: &mut Engine,
+    label: &str,
+    value: impl Into<String>,
+    y: f32,
+    font_size: f32,
+    scale: f32,
+) {
     if let Some(text) = engine.texts.get_mut(label) {
         text.value = value.into();
         text.translation = Vec2::new(0.0, y);
@@ -942,7 +998,10 @@ fn item_text(item: Item, gs: &GameState, selected: bool) -> String {
         Item::Setting(s) => {
             let mut level = LEVEL_NAMES[s][gs.levels[s]].to_string();
             if s == DIFFICULTY {
-                level = format!("{} (points x{})", level, DIFFICULTY_MULTIPLIER[gs.levels[s]]);
+                level = format!(
+                    "{} (points x{})",
+                    level, DIFFICULTY_MULTIPLIER[gs.levels[s]]
+                );
             }
             return if selected {
                 format!(">  {}:  < {} >  <", SETTING_NAMES[s], level)
@@ -951,7 +1010,11 @@ fn item_text(item: Item, gs: &GameState, selected: bool) -> String {
             };
         }
     };
-    if selected { format!(">  {}  <", name) } else { name.to_string() }
+    if selected {
+        format!(">  {}  <", name)
+    } else {
+        name.to_string()
+    }
 }
 
 const HOW_TO_PLAY: [&str; 5] = [
@@ -973,7 +1036,11 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
         let bird_x = engine.sprites["user"].translation.x;
         (
             format!("Score: {}", gs.points()),
-            format!("Pipes: {}     Multiplier: x{:.1}", gs.pipes, gs.score_multiplier(bird_x)),
+            format!(
+                "Pipes: {}     Multiplier: x{:.1}",
+                gs.pipes,
+                gs.score_multiplier(bird_x)
+            ),
         )
     } else {
         (String::new(), String::new())
@@ -983,7 +1050,10 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
     update_speed_bar(engine, gs);
 
     if !showing {
-        for label in [MENU_TITLE, MENU_SUBTITLE, MENU_INFO, MENU_HINT].into_iter().chain(MENU_LINES) {
+        for label in [MENU_TITLE, MENU_SUBTITLE, MENU_INFO, MENU_HINT]
+            .into_iter()
+            .chain(MENU_LINES)
+        {
             set_text(engine, label, "");
         }
         return;
@@ -993,7 +1063,11 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
     let time = engine.time_since_startup_f64 as f32;
 
     // The start menu's title bobs gently, like the bird.
-    let bob = if page == Page::Main { 6.0 * (time * 2.0).sin() } else { 0.0 };
+    let bob = if page == Page::Main {
+        6.0 * (time * 2.0).sin()
+    } else {
+        0.0
+    };
     let (title, title_size) = match page {
         Page::Main => ("FlutterWorld", 88.0),
         Page::Pause => ("Paused", 72.0),
@@ -1012,7 +1086,10 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
 
     let info = match (page, gs.last_run) {
         (Page::Main, Some((points, pipes))) => {
-            format!("Best: {}     Last run: {} points, {} pipes", gs.high_score, points, pipes)
+            format!(
+                "Best: {}     Last run: {} points, {} pipes",
+                gs.high_score, points, pipes
+            )
         }
         (Page::Main, None) if gs.high_score > 0 => format!("Best: {}", gs.high_score),
         _ => String::new(),
@@ -1024,7 +1101,12 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
     if page == Page::HowToPlay {
         let pipe_points = (PIPE_POINTS * gs.difficulty_multiplier()) as u32;
         let pipe_line = format!("Each pipe: +{} points and a bigger multiplier", pipe_points);
-        for (i, line) in HOW_TO_PLAY.map(String::from).into_iter().chain([pipe_line]).enumerate() {
+        for (i, line) in HOW_TO_PLAY
+            .map(String::from)
+            .into_iter()
+            .chain([pipe_line])
+            .enumerate()
+        {
             lines.push((line, 140.0 - 42.0 * i as f32, 24.0, 1.0));
         }
     }
@@ -1039,7 +1121,12 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
             (_, true) => SELECTED_FONT_SIZE,
         };
         let scale = if selected { pulse } else { 1.0 };
-        lines.push((item_text(item, gs, selected), page.item_y(i), font_size, scale));
+        lines.push((
+            item_text(item, gs, selected),
+            page.item_y(i),
+            font_size,
+            scale,
+        ));
     }
     let mut lines = lines.into_iter();
     for label in MENU_LINES {
@@ -1069,8 +1156,16 @@ fn speed_shapes() -> [(&'static str, Vec2, Color); 5] {
     let stall_w = speed_bar_x(GLIDE_STALL_SPEED) + SPEED_BAR_W / 2.0;
     [
         (SPEED_BACK, SPEED_BACK_SIZE, SPEED_BACK_COLOR),
-        (SPEED_TRACK, Vec2::new(SPEED_BAR_W, SPEED_BAR_H), SPEED_TRACK_COLOR),
-        (SPEED_STALL_ZONE, Vec2::new(stall_w, SPEED_BAR_H), SPEED_STALL_ZONE_COLOR),
+        (
+            SPEED_TRACK,
+            Vec2::new(SPEED_BAR_W, SPEED_BAR_H),
+            SPEED_TRACK_COLOR,
+        ),
+        (
+            SPEED_STALL_ZONE,
+            Vec2::new(stall_w, SPEED_BAR_H),
+            SPEED_STALL_ZONE_COLOR,
+        ),
         (SPEED_RECOVER, SPEED_RECOVER_SIZE, SPEED_RECOVER_COLOR),
         (SPEED_NEEDLE, SPEED_NEEDLE_SIZE, Color::WHITE),
     ]
@@ -1083,7 +1178,10 @@ fn fill_label(color: usize, segment: u32) -> String {
 
 /// Which layer a piece of the speed bar is drawn on, going by SPEED_PIECES.
 fn speed_layer(piece: &str) -> f32 {
-    let index = SPEED_PIECES.iter().position(|&label| label == piece).unwrap_or(0);
+    let index = SPEED_PIECES
+        .iter()
+        .position(|&label| label == piece)
+        .unwrap_or(0);
     SPEED_HUD + index as f32
 }
 
@@ -1108,9 +1206,21 @@ fn update_speed_bar(engine: &mut Engine, gs: &GameState) {
     let pieces = [
         (SPEED_BACK, SPEED_BACK_CENTER, true),
         (SPEED_TRACK, Vec2::new(0.0, SPEED_BAR_Y), true),
-        (SPEED_STALL_ZONE, Vec2::new((left + stall_x) / 2.0, SPEED_BAR_Y), true),
-        (SPEED_RECOVER, Vec2::new(speed_bar_x(GLIDE_RECOVER_SPEED), SPEED_BAR_Y), gs.stalled),
-        (SPEED_NEEDLE, Vec2::new(speed_bar_x(speed), SPEED_BAR_Y), true),
+        (
+            SPEED_STALL_ZONE,
+            Vec2::new((left + stall_x) / 2.0, SPEED_BAR_Y),
+            true,
+        ),
+        (
+            SPEED_RECOVER,
+            Vec2::new(speed_bar_x(GLIDE_RECOVER_SPEED), SPEED_BAR_Y),
+            gs.stalled,
+        ),
+        (
+            SPEED_NEEDLE,
+            Vec2::new(speed_bar_x(speed), SPEED_BAR_Y),
+            true,
+        ),
     ];
     for (label, center, shown) in pieces {
         if let Some(piece) = engine.sprites.get_mut(label) {
@@ -1128,7 +1238,11 @@ fn update_speed_bar(engine: &mut Engine, gs: &GameState) {
         for color in 0..SPEED_FILL_COLORS.len() {
             if let Some(piece) = engine.sprites.get_mut(&fill_label(color, segment)) {
                 let shown = showing && used && color == fill_color;
-                piece.translation = if shown { Vec2::new(x + width / 2.0, SPEED_BAR_Y) } else { OFFSCREEN };
+                piece.translation = if shown {
+                    Vec2::new(x + width / 2.0, SPEED_BAR_Y)
+                } else {
+                    OFFSCREEN
+                };
             }
         }
         if used {
@@ -1145,10 +1259,22 @@ fn update_speed_bar(engine: &mut Engine, gs: &GameState) {
     };
     let label = |text: String| if showing { text } else { String::new() };
     set_text(engine, SPEED_TITLE, title);
-    set_text(engine, SPEED_MIN_LABEL, label(format!("Min {}", GLIDE_MIN_SPEED)));
-    set_text(engine, SPEED_MAX_LABEL, label(format!("Max {}", GLIDE_MAX_SPEED)));
+    set_text(
+        engine,
+        SPEED_MIN_LABEL,
+        label(format!("Min {}", GLIDE_MIN_SPEED)),
+    );
+    set_text(
+        engine,
+        SPEED_MAX_LABEL,
+        label(format!("Max {}", GLIDE_MAX_SPEED)),
+    );
     set_text(engine, SPEED_STALL_LABEL, label("Stall".to_string()));
-    let recover = if gs.stalled { "Recover".to_string() } else { String::new() };
+    let recover = if gs.stalled {
+        "Recover".to_string()
+    } else {
+        String::new()
+    };
     set_text(engine, SPEED_RECOVER_LABEL, label(recover));
 }
 
@@ -1228,7 +1354,10 @@ fn add_ui(engine: &mut Engine) {
     let panel = engine.add_sprite("menu_panel", "sprite/flutter/menu_panel.png");
     panel.layer = PANEL;
     panel.translation = OFFSCREEN;
-    for label in [MENU_TITLE, MENU_SUBTITLE, MENU_INFO, MENU_HINT].into_iter().chain(MENU_LINES) {
+    for label in [MENU_TITLE, MENU_SUBTITLE, MENU_INFO, MENU_HINT]
+        .into_iter()
+        .chain(MENU_LINES)
+    {
         let text = engine.add_text(label, "");
         text.font = MENU_FONT.to_string();
     }
@@ -1257,8 +1386,19 @@ fn add_ui(engine: &mut Engine) {
         (SPEED_TITLE, Vec2::new(0.0, -336.0), 20.0),
         (SPEED_MIN_LABEL, Vec2::new(-bar_end, SPEED_BAR_Y), 18.0),
         (SPEED_MAX_LABEL, Vec2::new(bar_end, SPEED_BAR_Y), 18.0),
-        (SPEED_STALL_LABEL, Vec2::new((speed_bar_x(GLIDE_MIN_SPEED) + speed_bar_x(GLIDE_STALL_SPEED)) / 2.0, SPEED_LABEL_Y), 16.0),
-        (SPEED_RECOVER_LABEL, Vec2::new(speed_bar_x(GLIDE_RECOVER_SPEED), SPEED_LABEL_Y), 16.0),
+        (
+            SPEED_STALL_LABEL,
+            Vec2::new(
+                (speed_bar_x(GLIDE_MIN_SPEED) + speed_bar_x(GLIDE_STALL_SPEED)) / 2.0,
+                SPEED_LABEL_Y,
+            ),
+            16.0,
+        ),
+        (
+            SPEED_RECOVER_LABEL,
+            Vec2::new(speed_bar_x(GLIDE_RECOVER_SPEED), SPEED_LABEL_Y),
+            16.0,
+        ),
     ];
     for (label, position, font_size) in speed_texts {
         let text = engine.add_text(label, "");
@@ -1271,9 +1411,13 @@ fn add_ui(engine: &mut Engine) {
 /// Makes a solid-coloured image of the given size (once, under assets/) and returns its path for
 /// `add_sprite`. Must run before the game starts, so the engine finds the file when it loads it.
 fn rect_image(size: Vec2, color: Color) -> String {
-    let (width, height) = (size.x.round().max(1.0) as u32, size.y.round().max(1.0) as u32);
+    let (width, height) = (
+        size.x.round().max(1.0) as u32,
+        size.y.round().max(1.0) as u32,
+    );
     let srgba = color.to_srgba();
-    let rgba = [srgba.red, srgba.green, srgba.blue, srgba.alpha].map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+    let rgba = [srgba.red, srgba.green, srgba.blue, srgba.alpha]
+        .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
     let path = format!(
         "{GENERATED_IMAGES}/rect_{width}x{height}_{:02x}{:02x}{:02x}{:02x}.png",
         rgba[0], rgba[1], rgba[2], rgba[3]
@@ -1348,7 +1492,11 @@ fn crc32(bytes: &[u8]) -> u32 {
     for &byte in bytes {
         crc ^= byte as u32;
         for _ in 0..8 {
-            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
         }
     }
     !crc
@@ -1431,8 +1579,20 @@ fn main() {
 
     // (labels, image, y, layer, whether the bird can crash into it)
     let tiles = [
-        (BACKGROUND_LABELS, "sprite/flutter/background.png", 0.0, BACKGROUND, false),
-        (FLOOR_LABELS, "sprite/flutter/bg_floor.png", FLOOR_Y, FLOOR, true),
+        (
+            BACKGROUND_LABELS,
+            "sprite/flutter/background.png",
+            0.0,
+            BACKGROUND,
+            false,
+        ),
+        (
+            FLOOR_LABELS,
+            "sprite/flutter/bg_floor.png",
+            FLOOR_Y,
+            FLOOR,
+            true,
+        ),
     ];
     for (labels, image, y, layer, collision) in tiles {
         for (i, label) in labels.into_iter().enumerate() {
@@ -1490,7 +1650,11 @@ mod tests {
         gs.levels = levels;
         let (spacing, gap) = (gs.pillar_spacing(), gs.gap_size());
         let mut xs = [0.0; NUM_PILLARS];
-        let mut pairs = [Pair { x: 0.0, e_b: 0.0, e_t: 0.0 }; NUM_PILLARS];
+        let mut pairs = [Pair {
+            x: 0.0,
+            e_b: 0.0,
+            e_t: 0.0,
+        }; NUM_PILLARS];
         for i in 0..NUM_PILLARS {
             xs[i] = FIRST_PILLAR_X + i as f32 * spacing;
             pairs[i] = pair_for(i, xs[i], gap);
@@ -1500,7 +1664,14 @@ mod tests {
         for frame in 0..frames {
             let recycled = scroll_pillars(&mut xs, BASE_SCROLL_SPEED * gs.speed_scale(), spacing);
             for i in 0..NUM_PILLARS {
-                pairs[i] = if recycled[i] { pair_for(i, xs[i], gap) } else { Pair { x: xs[i], ..pairs[i] } };
+                pairs[i] = if recycled[i] {
+                    pair_for(i, xs[i], gap)
+                } else {
+                    Pair {
+                        x: xs[i],
+                        ..pairs[i]
+                    }
+                };
             }
             let controls = ai_controls(bird, gs.prev_flap, &pairs);
             step_bird(&mut bird, &mut rotation, &mut gs, &controls);
@@ -1539,7 +1710,11 @@ mod tests {
         let mut gs = GameState::new();
         let mut bird = Vec2::new(PLAYER_START_X, 0.0);
         let mut rotation = 0.0;
-        let idle = Controls { flap: false, glide: false, glide_target: None };
+        let idle = Controls {
+            flap: false,
+            glide: false,
+            glide_target: None,
+        };
         let mut crashed_at = None;
         for frame in 0..200 {
             step_bird(&mut bird, &mut rotation, &mut gs, &idle);
@@ -1548,7 +1723,10 @@ mod tests {
                 break;
             }
         }
-        assert!(crashed_at.is_some(), "an idle bird should fall into the floor");
+        assert!(
+            crashed_at.is_some(),
+            "an idle bird should fall into the floor"
+        );
     }
 
     #[test]
@@ -1556,7 +1734,10 @@ mod tests {
         for hz in [30.0, 60.0, 75.0, 120.0, 144.0, 165.0, 240.0] {
             let mut clock = StepClock::default();
             let steps: u32 = (0..(hz as usize * 10)).map(|_| clock.steps(1.0 / hz)).sum();
-            assert!(steps.abs_diff(600) <= 1, "{hz} Hz ran {steps} steps in 10 seconds instead of 600");
+            assert!(
+                steps.abs_diff(600) <= 1,
+                "{hz} Hz ran {steps} steps in 10 seconds instead of 600"
+            );
         }
     }
 
@@ -1565,7 +1746,11 @@ mod tests {
         let mut clock = StepClock::default();
         for frame in 0..600 {
             let jitter = if frame % 2 == 0 { 0.0006 } else { -0.0006 };
-            assert_eq!(clock.steps(1.0 / 60.0 + jitter), 1, "frame {frame} skipped or doubled a step");
+            assert_eq!(
+                clock.steps(1.0 / 60.0 + jitter),
+                1,
+                "frame {frame} skipped or doubled a step"
+            );
         }
     }
 
@@ -1580,8 +1765,15 @@ mod tests {
     fn every_menu_item_is_on_the_panel_and_can_be_pointed_at() {
         for page in [Page::Main, Page::Pause, Page::Options, Page::HowToPlay] {
             let items = page.items().len();
-            let info_lines = if page == Page::HowToPlay { HOW_TO_PLAY.len() + 1 } else { 0 };
-            assert!(info_lines + items <= MENU_LINES.len(), "{page:?} has more lines than there is text for");
+            let info_lines = if page == Page::HowToPlay {
+                HOW_TO_PLAY.len() + 1
+            } else {
+                0
+            };
+            assert!(
+                info_lines + items <= MENU_LINES.len(),
+                "{page:?} has more lines than there is text for"
+            );
             for i in 0..items {
                 let y = page.item_y(i);
                 assert!(y.abs() < 280.0, "{page:?} item {i} is off the panel");
@@ -1611,7 +1803,16 @@ mod tests {
         let mut damaged = GameState::new();
         read_save_text("best=lots\nlevels=9,x,1\nnonsense", &mut damaged);
         assert_eq!(damaged.high_score, 0);
-        assert_eq!(damaged.levels, [DEFAULT_LEVEL, DEFAULT_LEVEL, 1, DEFAULT_LEVEL, DEFAULT_LEVEL]);
+        assert_eq!(
+            damaged.levels,
+            [
+                DEFAULT_LEVEL,
+                DEFAULT_LEVEL,
+                1,
+                DEFAULT_LEVEL,
+                DEFAULT_LEVEL
+            ]
+        );
     }
 
     #[test]
@@ -1625,14 +1826,20 @@ mod tests {
         for _ in 0..DEATH_FREEZE_FRAMES {
             assert!(!step_death(&mut bird, &mut rotation, &mut gs));
         }
-        assert_eq!(bird, crash_at, "the shake should end where the bird crashed");
+        assert_eq!(
+            bird, crash_at,
+            "the shake should end where the bird crashed"
+        );
 
         let mut frames = DEATH_FREEZE_FRAMES + 1;
         while !step_death(&mut bird, &mut rotation, &mut gs) {
             frames += 1;
         }
         assert_eq!(frames, DEATH_FRAMES);
-        assert!(bird.y <= DEATH_OFFSCREEN_Y, "the bird was still in view when the menu came back");
+        assert!(
+            bird.y <= DEATH_OFFSCREEN_Y,
+            "the bird was still in view when the menu came back"
+        );
     }
 
     #[test]
@@ -1641,8 +1848,14 @@ mod tests {
             let gap = BASE_GAP * GAP_SCALE[level];
             for i in 0..NUM_PILLARS {
                 let pair = pair_for(i, 0.0, gap);
-                assert!(pair.e_b - PILLAR_LENGTH <= FLOOR_HIDE_Y, "bottom pillar floats at gap level {level}");
-                assert!(pair.e_t + PILLAR_LENGTH >= CEILING_COVER_Y, "top pillar stops short at gap level {level}");
+                assert!(
+                    pair.e_b - PILLAR_LENGTH <= FLOOR_HIDE_Y,
+                    "bottom pillar floats at gap level {level}"
+                );
+                assert!(
+                    pair.e_t + PILLAR_LENGTH >= CEILING_COVER_Y,
+                    "top pillar stops short at gap level {level}"
+                );
                 assert!((pair.e_t - pair.e_b - gap).abs() < 0.01);
             }
         }
@@ -1660,34 +1873,69 @@ mod tests {
     fn points_multiplier_grows_with_front_speed_difficulty_and_pipes() {
         let mut gs = GameState::new();
         let base = gs.score_multiplier(PLAYER_MIN_X);
-        assert!((base - 1.0).abs() < 1e-6, "back of the window at normal settings is x1, got {base}");
+        assert!(
+            (base - 1.0).abs() < 1e-6,
+            "back of the window at normal settings is x1, got {base}"
+        );
 
         assert!(gs.score_multiplier(PLAYER_MAX_X) > gs.score_multiplier(0.0));
         assert!((gs.score_multiplier(PLAYER_MAX_X) - (1.0 + FRONT_BONUS)).abs() < 1e-6);
 
         gs.glide_speed = GLIDE_MAX_SPEED;
-        assert!(gs.score_multiplier(PLAYER_MIN_X) > base, "gliding fast should score more");
+        assert!(
+            gs.score_multiplier(PLAYER_MIN_X) > base,
+            "gliding fast should score more"
+        );
         gs.glide_speed = GLIDE_MIN_SPEED;
-        assert_eq!(gs.score_multiplier(PLAYER_MIN_X), base, "slow flight shouldn't cost points");
+        assert_eq!(
+            gs.score_multiplier(PLAYER_MIN_X),
+            base,
+            "slow flight shouldn't cost points"
+        );
         gs.glide_speed = GLIDE_BASE_SPEED;
 
         gs.levels[DIFFICULTY] = LEVELS - 1;
-        assert!(gs.score_multiplier(PLAYER_MIN_X) > base, "harder difficulty should score more");
+        assert!(
+            gs.score_multiplier(PLAYER_MIN_X) > base,
+            "harder difficulty should score more"
+        );
         gs.levels[DIFFICULTY] = DEFAULT_LEVEL;
 
         gs.pipes = 10;
-        assert!(gs.score_multiplier(PLAYER_MIN_X) > base, "more pipes should score more");
+        assert!(
+            gs.score_multiplier(PLAYER_MIN_X) > base,
+            "more pipes should score more"
+        );
     }
 
     #[test]
     fn speed_bar_runs_from_min_to_max_with_stall_and_recovery_in_order() {
         assert_eq!(speed_bar_x(GLIDE_MIN_SPEED), -SPEED_BAR_W / 2.0);
         assert_eq!(speed_bar_x(GLIDE_MAX_SPEED), SPEED_BAR_W / 2.0);
-        assert_eq!(speed_bar_x(0.0), speed_bar_x(GLIDE_MIN_SPEED), "the needle stays on the bar");
-        assert_eq!(speed_bar_x(100.0), speed_bar_x(GLIDE_MAX_SPEED), "the needle stays on the bar");
-        let marks = [GLIDE_MIN_SPEED, GLIDE_STALL_SPEED, GLIDE_BASE_SPEED, GLIDE_RECOVER_SPEED, GLIDE_MAX_SPEED];
+        assert_eq!(
+            speed_bar_x(0.0),
+            speed_bar_x(GLIDE_MIN_SPEED),
+            "the needle stays on the bar"
+        );
+        assert_eq!(
+            speed_bar_x(100.0),
+            speed_bar_x(GLIDE_MAX_SPEED),
+            "the needle stays on the bar"
+        );
+        let marks = [
+            GLIDE_MIN_SPEED,
+            GLIDE_STALL_SPEED,
+            GLIDE_BASE_SPEED,
+            GLIDE_RECOVER_SPEED,
+            GLIDE_MAX_SPEED,
+        ];
         for pair in marks.windows(2) {
-            assert!(speed_bar_x(pair[0]) < speed_bar_x(pair[1]), "{} should sit left of {}", pair[0], pair[1]);
+            assert!(
+                speed_bar_x(pair[0]) < speed_bar_x(pair[1]),
+                "{} should sit left of {}",
+                pair[0],
+                pair[1]
+            );
         }
     }
 
@@ -1741,7 +1989,10 @@ mod tests {
     fn turn_toward_takes_the_short_way_round() {
         // From just under +PI to just over -PI is a small turn through PI, not a lap back through 0.
         let turned = turn_toward(3.0, -3.0, 0.2);
-        assert!((turned - (3.2 - 2.0 * PI)).abs() < 1e-5, "turned the long way: {turned}");
+        assert!(
+            (turned - (3.2 - 2.0 * PI)).abs() < 1e-5,
+            "turned the long way: {turned}"
+        );
         assert!((turn_toward(0.0, 1.0, 0.25) - 0.25).abs() < 1e-6);
     }
 
