@@ -20,4 +20,7 @@ This game is still very much in an alpha/beta development phase. **THERE WILL BE
 - Music: "Classy 8-Bit" by Eric Matyas, www.soundimage.org
 - Sound effects: Kenney (www.kenney.nl), CC0
 
+# Screenshots
+
+
 # Enjoy!
