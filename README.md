@@ -11,9 +11,7 @@ This game is still very much in an alpha/beta development phase. **THERE WILL BE
 
 # How to Run
 
-1) Make sure you have a text editor like VS Code, NeoVim or Zed (any code editor works fine - just make sure it can run rust)
-2) Make sure you have Rust installed. **THIS IS CRUCIAL**
-3) Into your terminal, type "cargo run --release" (without quotes). It'll take a few minutes to compile but then it should be fine
+1) Into your terminal, type "cargo run --release" (without quotes). It'll take a few minutes to compile but then it should be fine
 
 # Credits
 
