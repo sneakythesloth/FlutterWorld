@@ -43,6 +43,14 @@ enum Item {
     Setting(usize), // index into the settings tables
 }
 
+impl Item {
+    /// Items that throw the current run away. They need choosing twice, so a stray click on the
+    /// pause menu can't wipe the run.
+    fn needs_confirm(self) -> bool {
+        matches!(self, Item::Restart | Item::MainMenu)
+    }
+}
+
 impl Page {
     fn items(self) -> &'static [Item] {
         match self {
@@ -121,6 +129,7 @@ struct GameState {
     mode: Mode,
     page: Page,      // which menu page is showing, while in the menu or paused
     selected: usize, // which item on the page the menu cursor is on
+    confirming: Option<Item>, // an item that needs confirming and has been chosen once already
     levels: [usize; SETTING_COUNT], // chosen level of each setting, indexes into the tables below
     clock: StepClock,
     lift: f32,
@@ -144,6 +153,7 @@ impl GameState {
             mode: Mode::Menu,
             page: Page::Main,
             selected: 0,
+            confirming: None,
             levels: [DEFAULT_LEVEL; SETTING_COUNT],
             clock: StepClock::default(),
             lift: 0.0,
@@ -226,6 +236,7 @@ impl GameState {
     fn open_page(&mut self, page: Page) {
         self.page = page;
         self.selected = 0;
+        self.confirming = None;
     }
 
     /// The page that Back returns to: the pause menu mid-run, the start menu otherwise.
@@ -904,6 +915,10 @@ fn handle_menu(engine: &mut Engine, gs: &mut GameState) {
         gs.selected = (gs.selected + 1) % items.len();
     }
     let item = items[gs.selected];
+    // Moving the cursor off an item that is waiting for its second choice cancels it.
+    if gs.confirming.is_some_and(|waiting| waiting != item) {
+        gs.confirming = None;
+    }
 
     if gs.mode == Mode::Paused && (input.pause || (input.back && gs.page == Page::Pause)) {
         gs.mode = Mode::Playing;
@@ -934,7 +949,11 @@ fn handle_menu(engine: &mut Engine, gs: &mut GameState) {
             save_progress(gs);
         }
     } else if input.activate {
-        choose(engine, gs, item);
+        if item.needs_confirm() && gs.confirming != Some(item) {
+            gs.confirming = Some(item);
+        } else {
+            choose(engine, gs, item);
+        }
     }
 }
 
@@ -1010,7 +1029,9 @@ fn item_text(item: Item, gs: &GameState, selected: bool) -> String {
             };
         }
     };
-    if selected {
+    if gs.confirming == Some(item) {
+        format!(">  {}?  Click again  <", name)
+    } else if selected {
         format!(">  {}  <", name)
     } else {
         name.to_string()
