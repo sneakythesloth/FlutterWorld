@@ -4,7 +4,7 @@ use std::f32::consts::{FRAC_PI_2, PI};
 use std::path::PathBuf;
 
 /// Rotates `current` toward `target` by at most `max_step` radians, taking the shorter way
-/// round, and keeps the result in (-PI, PI].
+/// round, and keeps the result in [-PI, PI).
 fn turn_toward(current: f32, target: f32, max_step: f32) -> f32 {
     let diff = (target - current + PI).rem_euclid(2.0 * PI) - PI;
     let turned = current + diff.clamp(-max_step, max_step);
@@ -127,8 +127,8 @@ struct GameState {
     last_run: Option<(u32, u32)>, // (points, pipes) of the run that just ended
     high_score: u32,
     mode: Mode,
-    page: Page,      // which menu page is showing, while in the menu or paused
-    selected: usize, // which item on the page the menu cursor is on
+    page: Page,               // which menu page is showing, while in the menu or paused
+    selected: usize,          // which item on the page the menu cursor is on
     confirming: Option<Item>, // an item that needs confirming and has been chosen once already
     levels: [usize; SETTING_COUNT], // chosen level of each setting, indexes into the tables below
     clock: StepClock,
@@ -137,9 +137,20 @@ struct GameState {
     stalled: bool,
     heading: f32, // flight direction in radians: 0 is forward, positive is up
     prev_flap: bool,
-    death_frame: u32,      // steps since the bird crashed, while dying
-    death_fall_speed: f32, // the crashed bird's vertical speed; positive is up
-    view_scale: f32,       // how much the world was scaled to fit the window last frame
+    death_frame: u32,           // steps since the bird crashed, while dying
+    death_fall_speed: f32,      // the crashed bird's vertical speed; positive is up
+    view_scale: f32,            // how much the world was scaled to fit the window last frame
+    save_file: Option<PathBuf>, // where the best score and settings are kept; None saves nothing
+}
+
+/// The engine has no "the game is closing" hook, so a run that is still going when the player
+/// quits (Esc, or closing the window) is ended here, and its score counts like any other.
+impl Drop for GameState {
+    fn drop(&mut self) {
+        if matches!(self.mode, Mode::Playing | Mode::Paused) {
+            finish_run(self);
+        }
+    }
 }
 
 impl GameState {
@@ -164,6 +175,7 @@ impl GameState {
             death_frame: 0,
             death_fall_speed: 0.0,
             view_scale: 1.0,
+            save_file: None,
         }
     }
 
@@ -375,7 +387,7 @@ const PILLAR: f32 = 0.5; // behind the floor, so a pillar's lower end is hidden 
 const FLOOR: f32 = 1.0;
 const USER: f32 = 2.0;
 const PANEL: f32 = 800.0;
-const PILLAR_RECYCLE_X: f32 = -(WINDOW_WIDTH as f32) / 2.0 - 120.0; // just past the left edge
+const PILLAR_RECYCLE_X: f32 = -STAGE_HALF_W - 40.0; // just past the stage's left edge
 
 // The background and the floor are each two copies of one image laid side by side, which
 // leapfrog each other as they scroll so the image repeats forever.
@@ -385,9 +397,20 @@ const TILE_SCALE: f32 = 1.7;
 const TILE_WIDTH: f32 = 1600.0 * TILE_SCALE;
 const FLOOR_Y: f32 = -385.0;
 
+// The stage is the part of the world that is fit to be seen. The window always shows the whole
+// WINDOW_WIDTH x WINDOW_HEIGHT area, and one of another shape shows some more scenery round it,
+// but only as far as the stage's edges: beyond them pillars appear and vanish, their far ends
+// stick out and the scenery runs out, so black bars in front of everything cover the rest.
+const STAGE_HALF_W: f32 = 800.0; // pillars are recycled just out of sight beyond this
+const STAGE_HALF_H: f32 = 48.0 * TILE_SCALE - FLOOR_Y; // down to the floor image's lower edge
+const BAR_LABELS: [&str; 4] = ["bar_left", "bar_right", "bar_top", "bar_bottom"];
+const BAR_IMAGE_SIZE: f32 = 8.0; // a small black square...
+const BAR_SCALE: f32 = 2048.0; // ...blown up to cover a window of any shape
+const BARS: f32 = 990.0; // layer: in front of everything
+
 // Every pillar is the same tall sprite. The gap's size and height are set by sliding the bottom
 // pillar down and the top pillar up, and the ends that slide out of view are hidden behind the
-// floor and past the top of the window.
+// floor and past the top of the stage.
 const PILLAR_IMAGE: &str = "sprite/flutter/long_pillar.png";
 const PILLAR_SCALE: f32 = 0.3;
 const PILLAR_LENGTH: f32 = 1120.0 * PILLAR_SCALE;
@@ -396,7 +419,7 @@ const PILLAR_HALF_W: f32 = 39.0;
 const NUM_PILLARS: usize = 5;
 const FIRST_PILLAR_X: f32 = 1000.0;
 const FLOOR_HIDE_Y: f32 = -310.0; // a bottom pillar's lower end must reach at least this far down
-const CEILING_COVER_Y: f32 = WINDOW_HEIGHT as f32 / 2.0 + 20.0; // a top pillar must reach this high
+const CEILING_COVER_Y: f32 = STAGE_HALF_H; // a top pillar must reach the top of the stage
 const PILLAR_CENTERS: [f32; NUM_PILLARS] = [21.0, 122.0, 230.0, 70.0, 175.0]; // preferred gap heights
 
 // The AI that plays behind the menu.
@@ -421,7 +444,7 @@ const DEATH_SHAKE: f32 = 4.0;
 const DEATH_POP_SPEED: f32 = 12.0;
 const DEATH_GRAVITY: f32 = 0.7;
 const DEATH_SPIN: f32 = 0.25; // radians per frame
-const DEATH_OFFSCREEN_Y: f32 = -(WINDOW_HEIGHT as f32) / 2.0 - 60.0; // the bird is out of view below this
+const DEATH_OFFSCREEN_Y: f32 = -STAGE_HALF_H - 60.0; // the bird is out of view below this
 const DEATH_FRAMES: u32 = 105; // 1.75 s, as long as the death sound
 
 const MENU_FONT: &str = "font/BitcountPropSingle-VariableFont_CRSV,ELSH,ELXP,slnt,wght.ttf";
@@ -451,6 +474,11 @@ const SELECTED_SETTING_FONT_SIZE: f32 = 30.0;
 
 // (label, y, font size) of the score lines along the top of the window
 const HUD_TEXTS: [(&str, f32, f32); 2] = [("hud_score", 365.0, 40.0), ("hud_pipes", 322.0, 26.0)];
+// The engine only draws white text, which can't be read over the sun and the clouds, so the score
+// lines sit on a dark strip like the speed bar's.
+const HUD_BACK: &str = "hud_back";
+const HUD_BACK_CENTER: Vec2 = Vec2::new(0.0, 345.0);
+const HUD_BACK_SIZE: Vec2 = Vec2::new(480.0, 96.0);
 
 // The speed bar on the ground during a run: a track from the slowest glide to the fastest, a red
 // zone where climbing stalls the bird, and a needle at the current speed. The engine can't tint or
@@ -513,7 +541,7 @@ struct Pair {
 
 /// Height of the middle of a gap. Pillars have a fixed length, so how high or low a gap of this
 /// size can sit is limited: the bottom pillar must still reach the floor and the top pillar the
-/// top of the window.
+/// top of the stage.
 fn gap_center(index: usize, gap: f32) -> f32 {
     let min = CEILING_COVER_Y - PILLAR_LENGTH - gap / 2.0;
     let max = FLOOR_HIDE_Y + PILLAR_LENGTH + gap / 2.0;
@@ -532,15 +560,17 @@ fn pair_for(index: usize, x: f32, gap: f32) -> Pair {
 /// Moves every pillar left. A pillar that scrolls off the left edge is sent back to the right,
 /// `spacing` beyond the rightmost one; the returned flags mark which pillars were recycled.
 fn scroll_pillars(xs: &mut [f32; NUM_PILLARS], speed: f32, spacing: f32) -> [bool; NUM_PILLARS] {
+    // Everything moves before anything is recycled, so `spacing` is measured from where the
+    // rightmost pillar is now rather than where it was a frame ago.
+    for x in xs.iter_mut() {
+        *x -= speed;
+    }
     let mut recycled = [false; NUM_PILLARS];
     for i in 0..NUM_PILLARS {
-        let next_x = xs[i] - speed;
-        if next_x < PILLAR_RECYCLE_X {
+        if xs[i] < PILLAR_RECYCLE_X {
             let rightmost_x = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
             xs[i] = rightmost_x + spacing;
             recycled[i] = true;
-        } else {
-            xs[i] = next_x;
         }
     }
     recycled
@@ -632,7 +662,7 @@ fn step_bird(pos: &mut Vec2, rotation: &mut f32, gs: &mut GameState, c: &Control
 /// Advances the death animation by one frame. Returns true once it has finished.
 fn step_death(pos: &mut Vec2, rotation: &mut f32, gs: &mut GameState) -> bool {
     if gs.death_frame < DEATH_FREEZE_FRAMES {
-        pos.x += if gs.death_frame % 2 == 0 {
+        pos.x += if gs.death_frame.is_multiple_of(2) {
             DEATH_SHAKE
         } else {
             -DEATH_SHAKE
@@ -651,7 +681,7 @@ fn ai_target(bird_x: f32, pairs: &[Pair]) -> f32 {
     let mut next: Option<&Pair> = None;
     for pair in pairs {
         let still_ahead = pair.x + PILLAR_HALF_W + BIRD_HALF_W + AI_CLEARANCE > bird_x;
-        if still_ahead && next.map_or(true, |n| pair.x < n.x) {
+        if still_ahead && next.is_none_or(|n| pair.x < n.x) {
             next = Some(pair);
         }
     }
@@ -887,10 +917,10 @@ fn read_menu_input(engine: &Engine, gs: &mut GameState) -> MenuInput {
     let hovered = world_mouse(engine).and_then(|m| gs.page.item_at(m));
     let left_click = hovered.is_some() && mouse.just_pressed(MouseButton::Left);
     let right_click = hovered.is_some() && mouse.just_pressed(MouseButton::Right);
-    if let Some(i) = hovered {
-        if mouse.motion() != Vec2::ZERO || left_click || right_click {
-            gs.selected = i;
-        }
+    if let Some(i) = hovered
+        && (mouse.motion() != Vec2::ZERO || left_click || right_click)
+    {
+        gs.selected = i;
     }
     MenuInput {
         up: kb.just_pressed_any(&[KeyCode::ArrowUp, KeyCode::KeyW]),
@@ -1053,7 +1083,11 @@ fn update_ui(engine: &mut Engine, gs: &GameState) {
         panel.translation = if showing { Vec2::ZERO } else { OFFSCREEN };
     }
 
-    let (score_line, pipes_line) = if matches!(gs.mode, Mode::Playing | Mode::Dying) {
+    let in_run = matches!(gs.mode, Mode::Playing | Mode::Dying);
+    if let Some(back) = engine.sprites.get_mut(HUD_BACK) {
+        back.translation = if in_run { HUD_BACK_CENTER } else { OFFSCREEN };
+    }
+    let (score_line, pipes_line) = if in_run {
         let bird_x = engine.sprites["user"].translation.x;
         (
             format!("Score: {}", gs.points()),
@@ -1271,7 +1305,7 @@ fn update_speed_bar(engine: &mut Engine, gs: &GameState) {
         }
     }
 
-    let blink_on = (engine.time_since_startup_f64 * 4.0) as u64 % 2 == 0;
+    let blink_on = ((engine.time_since_startup_f64 * 4.0) as u64).is_multiple_of(2);
     let title = match (showing, gs.stalled) {
         (false, _) => String::new(),
         (true, true) if blink_on => "STALL!  Dive to recover".to_string(),
@@ -1330,16 +1364,19 @@ fn game_logic(engine: &mut Engine, gs: &mut GameState) {
         Mode::Playing => {
             let pause = engine.keyboard_state.just_pressed(KeyCode::KeyP);
             let reset = engine.keyboard_state.just_pressed(KeyCode::KeyR);
-            if pause {
-                gs.mode = Mode::Paused;
-                gs.open_page(Page::Pause);
-            } else if reset {
-                choose(engine, gs, Item::MainMenu);
-            } else if bird_hit {
+            // A crash comes first. The engine reports each one only once, as it begins, so if
+            // pausing on that very frame won instead, the crash would be forgotten and the bird
+            // would fly on through the pillar after the pause.
+            if bird_hit {
                 play_sound(engine, gs, DEATH_SOUND, DEATH_SOUND_VOLUME);
                 engine.audio_manager.stop_music();
                 finish_run(gs);
                 gs.start_dying();
+            } else if pause {
+                gs.mode = Mode::Paused;
+                gs.open_page(Page::Pause);
+            } else if reset {
+                choose(engine, gs, Item::MainMenu);
             } else {
                 let controls = player_controls(engine);
                 for _ in 0..steps {
@@ -1387,6 +1424,9 @@ fn add_ui(engine: &mut Engine) {
         text.font_size = font_size;
         text.translation = Vec2::new(0.0, y);
     }
+    let hud_back = engine.add_sprite(HUD_BACK, rect_image(HUD_BACK_SIZE, SPEED_BACK_COLOR));
+    hud_back.layer = SPEED_HUD;
+    hud_back.translation = OFFSCREEN;
 
     for (label, size, color) in speed_shapes() {
         let piece = engine.add_sprite(label, rect_image(size, color));
@@ -1425,6 +1465,24 @@ fn add_ui(engine: &mut Engine) {
         text.font = MENU_FONT.to_string();
         text.font_size = font_size;
         text.translation = position;
+    }
+}
+
+/// Adds the black bars that cover everything beyond the stage.
+fn add_bars(engine: &mut Engine) {
+    let image = rect_image(Vec2::splat(BAR_IMAGE_SIZE), Color::BLACK);
+    let reach = BAR_IMAGE_SIZE * BAR_SCALE / 2.0; // from a bar's centre to its edge
+    let centers = [
+        Vec2::new(-(STAGE_HALF_W + reach), 0.0),
+        Vec2::new(STAGE_HALF_W + reach, 0.0),
+        Vec2::new(0.0, STAGE_HALF_H + reach),
+        Vec2::new(0.0, -(STAGE_HALF_H + reach)),
+    ];
+    for (label, center) in BAR_LABELS.into_iter().zip(centers) {
+        let bar = engine.add_sprite(label, image.as_str());
+        bar.translation = center;
+        bar.scale = BAR_SCALE;
+        bar.layer = BARS;
     }
 }
 
@@ -1468,13 +1526,11 @@ fn asset_root() -> PathBuf {
 
 /// A PNG file of one colour. The pixels are stored uncompressed, which is fine for small images.
 fn solid_png(width: u32, height: u32, rgba: [u8; 4]) -> Vec<u8> {
-    let mut pixels = Vec::new();
-    for _ in 0..height {
-        pixels.push(0); // no filter on this row
-        for _ in 0..width {
-            pixels.extend_from_slice(&rgba);
-        }
+    let mut row = vec![0]; // no filter on this row
+    for _ in 0..width {
+        row.extend_from_slice(&rgba);
     }
+    let pixels = row.repeat(height as usize); // every row is the same
     // A zlib stream made of "stored" deflate blocks, which hold at most 65535 bytes each.
     let mut zlib = vec![0x78, 0x01];
     let blocks: Vec<&[u8]> = pixels.chunks(65535).collect();
@@ -1553,10 +1609,10 @@ fn read_save_text(text: &str, gs: &mut GameState) {
             }
             Some(("levels", value)) => {
                 for (level, saved) in gs.levels.iter_mut().zip(value.split(',')) {
-                    if let Ok(saved) = saved.trim().parse::<usize>() {
-                        if saved < LEVELS {
-                            *level = saved;
-                        }
+                    if let Ok(saved) = saved.trim().parse::<usize>()
+                        && saved < LEVELS
+                    {
+                        *level = saved;
                     }
                 }
             }
@@ -1566,17 +1622,18 @@ fn read_save_text(text: &str, gs: &mut GameState) {
 }
 
 fn load_progress(gs: &mut GameState) {
-    if let Some(text) = save_path().and_then(|path| std::fs::read_to_string(path).ok()) {
+    let saved = gs.save_file.as_ref().map(std::fs::read_to_string);
+    if let Some(Ok(text)) = saved {
         read_save_text(&text, gs);
     }
 }
 
 fn save_progress(gs: &GameState) {
-    let Some(path) = save_path() else { return };
+    let Some(path) = &gs.save_file else { return };
     let saved = path
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|_| std::fs::write(&path, save_text(gs)));
+        .and_then(|_| std::fs::write(path, save_text(gs)));
     if let Err(err) = saved {
         eprintln!("Couldn't save to {}: {}", path.display(), err);
     }
@@ -1635,9 +1692,11 @@ fn main() {
     }
 
     add_ui(&mut game);
+    add_bars(&mut game);
 
     // The game opens on the menu, with the pillars laid out and the AI ready to fly.
     let mut game_state = GameState::new();
+    game_state.save_file = save_path();
     load_progress(&mut game_state);
     reset_run(&mut game, &mut game_state);
     update_ui(&mut game, &game_state);
@@ -1703,6 +1762,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::needless_range_loop)] // each level is an index into several tables at once
     fn ai_survives_every_setting_combination() {
         for f in 0..LEVELS {
             for g in 0..LEVELS {
@@ -1836,6 +1896,32 @@ mod tests {
     }
 
     #[test]
+    fn quitting_in_the_middle_of_a_run_still_saves_its_score() {
+        let name = format!("flutterworld_test_{}.txt", std::process::id());
+        let file = std::env::temp_dir().join(name);
+        for mode in [Mode::Playing, Mode::Paused] {
+            let mut gs = GameState::new();
+            gs.save_file = Some(file.clone());
+            gs.mode = mode;
+            gs.score = 77.9;
+            drop(gs); // what happens to the game's state when its window closes
+
+            let mut loaded = GameState::new();
+            loaded.save_file = Some(file.clone());
+            load_progress(&mut loaded);
+            std::fs::remove_file(&file).unwrap();
+            assert_eq!(loaded.high_score, 77, "quit while {mode:?}");
+        }
+
+        // No run is going on in the menu, so quitting from there leaves the save alone.
+        let mut gs = GameState::new();
+        gs.save_file = Some(file.clone());
+        gs.score = 77.9;
+        drop(gs);
+        assert!(!file.exists());
+    }
+
+    #[test]
     fn death_animation_shakes_then_drops_the_bird_out_of_view() {
         // Crashing at the very top of the window is the longest way down.
         let mut gs = GameState::new();
@@ -1864,8 +1950,8 @@ mod tests {
 
     #[test]
     fn pillars_always_cover_floor_and_ceiling() {
-        for level in 0..LEVELS {
-            let gap = BASE_GAP * GAP_SCALE[level];
+        for (level, scale) in GAP_SCALE.into_iter().enumerate() {
+            let gap = BASE_GAP * scale;
             for i in 0..NUM_PILLARS {
                 let pair = pair_for(i, 0.0, gap);
                 assert!(
@@ -1878,6 +1964,67 @@ mod tests {
                 );
                 assert!((pair.e_t - pair.e_b - gap).abs() < 0.01);
             }
+        }
+    }
+
+    #[test]
+    fn the_stage_shows_nothing_it_should_not() {
+        // The window's own area is always inside the stage.
+        assert!(WINDOW_WIDTH as f32 / 2.0 <= STAGE_HALF_W);
+        assert!(WINDOW_HEIGHT as f32 / 2.0 <= STAGE_HALF_H);
+
+        // Where a recycled pillar lands with the pillars at their closest and fastest.
+        let closest = PILLAR_SPACING.iter().copied().fold(f32::INFINITY, f32::min);
+        let fastest = BASE_SCROLL_SPEED * SPEED_SCALE[LEVELS - 1];
+        let nearest_new_pillar = PILLAR_RECYCLE_X - fastest + NUM_PILLARS as f32 * closest;
+
+        // (what has to stay out of sight, how far from the centre it starts, the stage's edge)
+        let hidden = [
+            (
+                "a pillar being recycled",
+                -(PILLAR_RECYCLE_X + PILLAR_HALF_W),
+                STAGE_HALF_W,
+            ),
+            (
+                "a pillar arriving",
+                nearest_new_pillar - PILLAR_HALF_W,
+                STAGE_HALF_W,
+            ),
+            (
+                "the end of the floor and the background",
+                TILE_WIDTH / 2.0,
+                STAGE_HALF_W,
+            ),
+            (
+                "a crashed bird, whichever way up it ends",
+                -(DEATH_OFFSCREEN_Y + BIRD_HALF_W + BIRD_HALF_H),
+                STAGE_HALF_H,
+            ),
+        ];
+        for (what, distance, edge) in hidden {
+            assert!(
+                distance >= edge,
+                "{what} shows: it is {distance} out, inside the stage's edge at {edge}"
+            );
+        }
+    }
+
+    #[test]
+    fn recycled_pillars_keep_an_even_spacing() {
+        let spacing = 650.0;
+        let mut xs: [f32; NUM_PILLARS] =
+            std::array::from_fn(|i| FIRST_PILLAR_X + i as f32 * spacing);
+        // Long enough for every pillar to go round several times.
+        for _ in 0..5_000 {
+            scroll_pillars(&mut xs, BASE_SCROLL_SPEED, spacing);
+        }
+        xs.sort_by(f32::total_cmp);
+        for pair in xs.windows(2) {
+            let apart = pair[1] - pair[0];
+            assert!(
+                (apart - spacing).abs() < 0.01,
+                "two pillars are {apart} apart instead of {spacing}"
+            );
         }
     }
 
@@ -2018,13 +2165,25 @@ mod tests {
 
     #[test]
     fn fill_segments_cover_the_whole_bar() {
-        assert!(SPEED_BAR_W.round() as u32 <= (1 << SPEED_FILL_SEGMENTS) - 1);
+        assert!((SPEED_BAR_W.round() as u32) < (1 << SPEED_FILL_SEGMENTS));
     }
 
     #[test]
     fn png_checksums_match_known_values() {
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
         assert_eq!(adler32(b"Wikipedia"), 0x11E6_0398);
+    }
+
+    #[test]
+    fn solid_png_stores_a_filter_byte_and_then_the_pixels_of_each_row() {
+        let png = solid_png(3, 2, [10, 20, 30, 40]);
+        // The image data comes after the 8-byte signature and the 25-byte IHDR chunk.
+        let idat = &png[33..];
+        assert_eq!(&idat[4..8], b"IDAT");
+        // Skip the chunk's length and name, the zlib header and the stored block's header.
+        let rows = &idat[8 + 2 + 5..];
+        let row = [0, 10, 20, 30, 40, 10, 20, 30, 40, 10, 20, 30, 40];
+        assert_eq!(&rows[..26], [row, row].concat());
     }
 
     #[test]
