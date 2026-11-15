@@ -1,5 +1,8 @@
 # Rust build output
 target/
 
+# Solid-colour images the game makes for itself at startup
+assets/sprite/generated/
+
 # macOS Finder files
 .DS_Store
